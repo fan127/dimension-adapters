@@ -1,6 +1,7 @@
 import * as sdk from "@defillama/sdk";
 import { BaseAdapter, FetchOptions, IStartTimestamp, SimpleAdapter } from "../../adapters/types";
 import { ABI, EulerConfigs, MorphoConfigs } from "./configs";
+import { CHAIN } from "../chains";
 
 const METRICS = {
   // use this label for all yield sources if breakdownFees was not set
@@ -52,6 +53,13 @@ interface VaultERC4626Info {
   balance: bigint;
   rateBefore: bigint;
   rateAfter: bigint;
+}
+
+const blacklistedTokens: Record<string, Array<{ token: string, from: string }>> = {
+  [CHAIN.ETHEREUM]: [{
+    token: '0x7751E2F4b8ae93EF6B79d86419d42FE3295A4559', //wUSDL - winded down
+    from: "2025-12-08",
+  }],
 }
 
 function isOwner(owner: string, owners: Array<string>) {
@@ -341,11 +349,12 @@ export function getCuratorExport(curatorConfig: CuratorConfig): SimpleAdapter {
       [METRICS.AssetYields]: 'Portion of interest yields retained by vault curators as management and performance fees',
       [METRICS.MorphoPerformanceFee]: 'Performance fees charged from vaults in Moroho',
       [METRICS.MorphoManagementFee]: 'Management fees charged from vaults in Moroho',
+      [METRICS.EulerPerformanceFee]: 'Management fees charged from vaults in Euler',
     },
     SupplySideRevenue: {
       [METRICS.AssetYields]: 'Portion of interest yields distributed to vault depositors/investors after curator fees are deducted',
       [METRICS.MorphoYieldsToSuppliers]: 'Interest yields generated from deposited assets in Morpho distributed to suppliers',
-      [METRICS.OtherAssetYieldsToSuppliers]: 'Interest yields generated from deposited assets in Euler distributed to suppliers',
+      [METRICS.EulerYieldsToSuppliers]: 'Interest yields generated from deposited assets in Euler distributed to suppliers',
     },
   }
   const exportObject: BaseAdapter = {}
@@ -373,6 +382,16 @@ export function getCuratorExport(curatorConfig: CuratorConfig): SimpleAdapter {
         }
         if (eulerVaults.length > 0) {
           await getEulerVaultFee(options, { dailyFees, dailyRevenue, dailySupplySideRevenue }, eulerVaults, curatorConfig.breakdownFees)
+        }
+
+        const blacklistedTokensForChain = blacklistedTokens[options.chain]?.filter(token => options.dateString >= token.from)?.map(token => token.token)
+
+        if (blacklistedTokensForChain && blacklistedTokensForChain.length > 0) {
+          for (const token of blacklistedTokensForChain) {
+            dailyFees.removeTokenBalance(token)
+            dailyRevenue.removeTokenBalance(token)
+            dailySupplySideRevenue.removeTokenBalance(token)
+          }
         }
 
         return {
